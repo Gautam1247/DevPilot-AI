@@ -1,0 +1,63 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+*-credentials.json
+service-account*.json
+service_account*.json
+api-key*
+api_key*
+.aws/
+.docker-local/
+
+# Python environments, caches and coverage
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+coverage/
+*.tsbuildinfo
+
+# Local projects, generated uploads and exports (source benchmarks stay tracked)
+.workspaces/
+test-uploads/
+analysis-output/
+extracted-projects/
+/tmp/
+/temp/
+/uploads/
+/downloads/
+/discount_bug.zip
+/off_by_one_bug.zip
+/sorting_bug.zip
+devpilot-patched*.zip
+patched-project*.zip
+*.log
+
+# Editor and operating system artifacts
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

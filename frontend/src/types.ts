@@ -1,0 +1,5 @@
+export type TestRun = {tests: Record<string, 'passed'|'failed'|'skipped'>; collected: string[]; errors: string[]; exit_code: number; timed_out: boolean; complete: boolean; logs: string; duration: number};
+export type Patch = {root_cause: string; target_file: string; original_code: string; replacement_code: string; explanation: string; confidence: number};
+export type Result = {project_id: string; name: string; created_at: number; phase: string; status: 'PENDING'|'VERIFIED'|'FAILED'|'INCONCLUSIVE'|'NO_BASELINE_FAILURE'; message: string; baseline: TestRun|null; targeted: TestRun|null; candidate: TestRun|null; target_test: string|null; patch: Patch|null; diff: string; full_suite_success: boolean; approved: boolean; rejected: boolean; duration: number; model: string; mock_generated: boolean};
+export type Session = {project: Result; capability_token: string; expires_at: number};
+export type Health = {docker_available: boolean; ai_ready: boolean; mock_ai: boolean; model: string; max_upload_bytes: number; message: string};
