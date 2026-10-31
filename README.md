@@ -1,22 +1,26 @@
-<div align="center">
-
 # DevPilot AI
-### Intelligent Python Debugging Agent
 
-Reproduce a failure. Inspect a focused patch. Verify it with tests. Keep the final say.
+**A verification-first debugging assistant for small Python projects.**
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
-![React](https://img.shields.io/badge/UI-React%20%2B%20TypeScript-61DAFB?logo=react&logoColor=black)
-![Docker](https://img.shields.io/badge/Sandbox-Docker-2496ED?logo=docker&logoColor=white)
+AI-generated fixes are easy to suggest and harder to trust. DevPilot accepts a Python project ZIP, reproduces its pytest failure in Docker, requests a focused Gemini patch, and compares baseline and candidate results. Developers review the explanation, diff and test evidence before approving a patched ZIP.
 
 **AI proposes. Deterministic validation verifies. The developer approves.**
 
-</div>
+Built with **React, TypeScript, FastAPI, Gemini, Docker and pytest**. Scope: a local development MVP for standard-library Python projects with ordinary pytest tests, one source-file replacement and one proposal per analysis. Mock AI is enabled by default; live requests require explicit configuration and a failing baseline.
 
-DevPilot turns a small Python project and its pytest failures into a reviewable debugging workflow. It separates model suggestions from test evidence: a confident explanation alone can never produce a verified result.
+[Windows setup](#installation-on-windows) · [Validation evidence](docs/VALIDATION.md) · [Two-minute demo](docs/DEMO_GUIDE.md) · [Project showcase](docs/PROJECT_SHOWCASE.md) · [Security audit](docs/SECURITY_AUDIT.md)
 
-This is a local development MVP, not a public code-execution service. Mock AI is enabled by default. Real Gemini requests occur only when you configure a key, disable mock mode, and start an analysis with a baseline failure.
+## Verified results
+
+| Evidence | Result and provenance |
+| --- | --- |
+| Final security-audit backend suite | **109 passed, 3 Docker tests skipped**; recorded in the [audit](docs/SECURITY_AUDIT.md#verification) |
+| Subsequent Docker regression run | **3 integration tests passed**, confirmed by the maintainer after the audit |
+| Original discount, off-by-one and sorting benchmarks | All three verified using **mock-generated patches and real Docker execution** |
+| Live Gemini discount fix | A genuine Gemini-generated fix was verified, confirmed by the maintainer |
+| Unseen time-window consolidation bug | Fixed with live Gemini and independently evaluated, as reported by the maintainer |
+
+These are individual checks and demonstrations, **not a statistical success rate over a representative dataset**. The unseen fixture and its evaluation artifacts are not bundled in this checkout. No application tests or live Gemini calls were repeated for this documentation update; [the validation record](docs/VALIDATION.md) explains the evidence boundaries.
 
 ## Features
 
@@ -32,22 +36,46 @@ This is a local development MVP, not a public code-execution service. Mock AI is
 
 ```mermaid
 flowchart LR
-    U[Developer] --> UI[React interface]
-    UI --> API[FastAPI and capability checks]
-    API --> ZIP[Bounded ZIP validation]
-    ZIP --> O[Original workspace]
-    O --> B[Restricted Docker baseline]
-    B --> AI[Gemini or labeled mock]
-    AI --> V[Schema and patch validation]
-    V --> C[Disposable candidate]
-    C --> T[Docker target and full suite]
-    T --> E[Deterministic evidence comparison]
-    E --> UI
-    UI --> A[Explicit approval]
-    A --> D[Verified candidate ZIP]
+    U[Developer] --> UI[React and TypeScript dashboard]
+    UI -->|Local API and capability token| API[FastAPI orchestration]
+    API --> WS[Local original and candidate workspaces]
+    API --> AI[Gemini SDK or deterministic mock]
+    API --> RUN[Fixed Docker runner]
+    WS -->|Read-only project mount| RUN
+    RUN --> PY[Python and pytest in restricted container]
+    PY -->|Test evidence| API
+    AI -->|Structured proposal| API
+    API -->|Diff and results| UI
+    UI -->|Explicit approval| API
+    API -->|Approved candidate ZIP| U
 ```
 
-The server picks the first failing node ID in sorted order, sends bounded source and failure context to the provider, and applies at most one replacement. Uploaded code, README text and logs never become trusted agent instructions. No model-generated command is executed.
+The API keeps the Gemini key on the backend. Uploaded code executes only in Docker; the model returns structured data, never executable tool commands. Originals and disposable candidates are stored separately. The provider is instructed to treat project content as untrusted data; that instruction is supplemented by local schema and patch checks.
+
+### Debugging workflow
+
+```mermaid
+flowchart TD
+    ZIP[Validate uploaded ZIP] --> BASE[Run baseline pytest in Docker]
+    BASE --> COMPLETE{Complete baseline evidence?}
+    COMPLETE -->|No| INC[INCONCLUSIVE]
+    COMPLETE -->|Yes| FAILING{Any failing tests?}
+    FAILING -->|No| NONE[NO_BASELINE_FAILURE]
+    FAILING -->|Yes| AI[Select target and request one proposal]
+    AI --> VALID{Provider and patch checks pass?}
+    VALID -->|No| INC
+    VALID -->|Yes| TEST[Run target and full candidate suite]
+    TEST --> EVIDENCE{Complete comparable evidence?}
+    EVIDENCE -->|No| INC
+    EVIDENCE -->|Yes| CHECK{Target passes and no regressions?}
+    CHECK -->|No| FAILED[FAILED]
+    CHECK -->|Yes| VERIFIED[VERIFIED]
+    VERIFIED --> REVIEW{Developer approves?}
+    REVIEW -->|Yes| EXPORT[Recheck candidate integrity and export ZIP]
+    REVIEW -->|No| STOP[No export]
+```
+
+The server chooses the first failing test ID in sorted order and sends bounded context for one replacement. `VERIFIED` means the target improved without detected regressions; other original failures may remain. Full-suite success is reported separately.
 
 ## Stack
 
@@ -134,11 +162,11 @@ GEMINI_MODEL=gemini-3.6-flash
 DEV_MODE_MOCK_AI=false
 ```
 
-Restart the backend after changing configuration. Obtain a key through [Google AI Studio](https://aistudio.google.com/apikey). Model identifiers are configurable because account and region availability differ. The requested default appears in Google's [model catalog](https://ai.google.dev/gemini-api/docs/models). The provider uses the official SDK's [JSON Schema output configuration](https://googleapis.github.io/python-genai/#json-response-schema) (`response_json_schema`) against the Gemini Developer API `v1beta` endpoint. Network operations have a 15-second timeout and the asynchronous provider request has a 40-second total deadline with cancellation. There is one total attempt, no automatic retries or function calls, and a 6,000-token output limit. The model's default temperature is used. Strict Pydantic validation still enforces every patch field, string-length limit and confidence bound locally; patch security checks are unchanged. The overall analysis duration additionally includes Docker test runs.
+Restart the backend after changing configuration. Obtain a key through [Google AI Studio](https://aistudio.google.com/apikey). `gemini-3.6-flash` is this repository's configured default; account access and model availability are separate from local readiness. Root `.env` loading uses an absolute path and works regardless of the working directory. Existing process environment variables take precedence.
 
-The provider reports distinct sanitized HTTP 400, 401, 403, 404 and 429 errors, network failures and timeouts. For HTTP 400 it distinguishes reported schema or generation-setting errors and the explicit `API_KEY_INVALID` reason when available. Raw provider messages, response bodies, URLs and credentials are never included in these diagnostic messages. Root `.env` loading is based on the configuration module's absolute path, regardless of the process working directory; existing process environment variables take precedence.
+The official `google-genai` SDK uses the Gemini Developer API `v1beta` endpoint and `response_json_schema`. Requests have a 15-second network-operation timeout, a 40-second cancellable total deadline, one attempt, no automatic retries or function calls, and a 6,000-token output limit. Strict Pydantic and patch validation run locally. Overall analysis time also includes Docker runs; this is not a latency benchmark.
 
-Missing or invalid keys, model access errors, quota/rate limits, malformed responses and connection failures produce safe actionable messages. No key is returned in API responses or application logs. There is no automatic model fallback, live-development smoke test, or recursive agent loop.
+HTTP 400, 401, 403, 404 and 429, network failures and timeouts have distinct sanitized diagnostics. Raw provider responses and credentials are excluded from those messages. No automatic model fallback or live startup probe is performed.
 
 Only enable real AI for code you intend to send to Google: bounded source, target test text, repository paths and sanitized failure logs leave your machine in live mode. Sanitization is not a general-purpose secret scanner.
 
@@ -168,11 +196,11 @@ Upload one ZIP, select **Analyze project**, inspect the diagnosis and test evide
 | Off-by-one | Excludes the inclusive upper bound | Use `range(1, n + 1)` |
 | Sorting | Sorts in descending order | Remove `reverse=True` |
 
-The maintainer has reported successful Docker runs of all three mock-AI benchmarks, live Gemini fixes for the discount bug and an unseen time-window consolidation bug, and the browser approval/export workflow. These observations are distinct from automated checks executed during repository preparation; see the [validation record](docs/VALIDATION.md) for provenance and results.
+The three opt-in Docker tests explicitly use mock AI and require both `VERIFIED` and full-suite success. The separate live Gemini demonstrations are recorded in [VALIDATION.md](docs/VALIDATION.md); they are not covered by those mock benchmark assertions.
 
 ## Project input contract
 
-Defaults: 5 MB compressed, 20 MB extracted, 256 KB per file, 100 archive entries, maximum compression ratio 200:1. Change the corresponding `.env.example` variables when needed.
+Defaults: 5 MB compressed, 20 MB extracted, 256 KB per file, 100 archive entries, maximum compression ratio 200:1. Size and count limits are configurable in [.env.example](.env.example); the compression ratio is fixed in code.
 
 Accepted: UTF-8 `.py` files plus `README.md`, `README.txt`, `LICENSE`, `requirements.txt`, and `pyproject.toml`. Hidden paths, binaries, encrypted archives, links, special files, duplicates, unsafe Windows filenames, traversal paths and common sensitive filenames are rejected. Python source must parse as AST. A single wrapping directory is removed automatically.
 
@@ -254,7 +282,7 @@ backend/tests/       Security, provider, API workflow and optional Docker tests
 frontend/src/        React dashboard, results, API client, types and styles
 sandbox/            Fixed Docker image and pytest evidence entry point
 benchmarks/         Three intentionally broken Python projects
-docs/               Validation record and screenshot status
+docs/               Validation, security audit, demo and portfolio guides
 .env.example        Backend configuration placeholders
 ```
 
@@ -275,7 +303,7 @@ docs/               Validation record and screenshot status
 
 ## Screenshots
 
-No browser screenshots have been captured in this environment. No placeholder or simulated screenshots are included. The UI can be viewed locally with `npm.cmd run dev`.
+No authentic screenshot files currently exist under `docs/`, so no screenshot images are embedded. The [capture checklist](docs/SCREENSHOTS.md) covers all eight presentation views and publication checks. The [90–120-second demo guide](docs/DEMO_GUIDE.md) provides a recording script; no recording is included or claimed.
 
 ## Current limitations and roadmap
 
