@@ -208,11 +208,14 @@ All project-specific routes require `Authorization: Bearer <capability_token>`. 
 - Non-root UID 10001, no network, one CPU, 256 MB memory/swap limit, 64 PIDs, all capabilities dropped, no privilege escalation, read-only root/project, 64 MB controlled tmpfs.
 - Default 45-second execution timeout; force-remove the container on completion or timeout. Capture at most 256 KB of output and retain bounded technical logs. Docker Desktop daemon/cleanup failure can still require manual container inspection.
 - Patch one existing allowlisted non-test source file. Reject hidden/configuration/test targets, new imports, new dynamic execution calls, ambiguous replacements and syntax errors. This conservative AST policy is not a proof of arbitrary Python semantics or a comprehensive malicious-code detector.
-- Candidate tree integrity checks before approval and export; full original kept separately.
+- Candidate tree integrity uses length-prefixed paths and contents; export is built from the exact byte snapshot that passed the check. The full original is kept separately.
+- Test evidence requires one final report frame with unique JSON keys, consistent process status and complete test collection. Ambiguous or incomplete evidence is inconclusive; these checks do not authenticate malicious pytest code.
 - Bounded request bodies before parsing, explicit origin/host checks, per-client limits and capability checks on project reads and writes.
 - Startup cleanup removes expired generated workspace directories. Capability expiry immediately blocks API access; files are deleted on a subsequent startup cleanup.
 
 **Docker hardening mitigates risk; it is insufficient for a public multi-tenant untrusted-code execution service.** The pytest process shares its interpreter with project code; deliberately malicious code can try to forge evidence. Verification is an engineering check on ordinary developer projects, not cryptographic attestation of adversarial tests. Dependencies and container/host vulnerabilities remain relevant. Do not expose this MVP to the internet. Public deployment requires real authentication/authorization, stronger execution isolation and evidence collection, persistent job management, audited quotas, secret scanning and an infrastructure security review. Capability tokens are not full multi-user authentication.
+
+See the [targeted security audit](docs/SECURITY_AUDIT.md) for confirmed findings, applied fixes, test evidence and deferred issues, including malformed-DEFLATE upload cleanup and unconfirmed container cleanup when Docker fails.
 
 ## Tests and build
 

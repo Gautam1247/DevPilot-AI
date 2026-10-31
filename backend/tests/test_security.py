@@ -69,3 +69,17 @@ def test_file_and_count_limits(tmp_path):
     for cfg in (Settings(max_files=1), Settings(max_file=2), Settings(max_extracted=5)):
         with pytest.raises(SafeError):
             extract_zip(data, tmp_path, cfg)
+
+
+def test_encrypted_entry_rejected(tmp_path):
+    data = bytearray(archive({'main.py':'x=1'}))
+    data[6] |= 1  # Local-file header encryption flag.
+    central = data.index(b'PK\x01\x02')
+    data[central+8] |= 1
+    with pytest.raises(SafeError, match='encrypted'):
+        extract_zip(bytes(data), tmp_path, Settings())
+
+
+def test_nul_filename_rejected(tmp_path):
+    with pytest.raises(SafeError):
+        extract_zip(archive({'main.py\x00hidden.py':'x=1'}), tmp_path, Settings())

@@ -20,7 +20,7 @@ from .engine import Engine
 from .runner import DockerRunner
 from .schemas import Approval, Health, Result, UploadResponse
 from .security import SafeError, extract_zip
-from .workspaces import Store, tree_hash
+from .workspaces import Store, snapshot_files, snapshot_hash
 
 
 class RequestGuard:
@@ -121,6 +121,15 @@ def create_app(cfg: Settings | None = None, runner=None, provider=None) -> FastA
             raise HTTPException(410, 'Project capability expired. Upload the project again.')
         return project
 
+    def checked_candidate(project):
+        try:
+            files = snapshot_files(project.root / 'candidate')
+            if snapshot_hash(files) != project.candidate_hash:
+                raise SafeError('Candidate integrity check failed.')
+        except (OSError, SafeError):
+            raise HTTPException(409, 'Candidate integrity check failed.') from None
+        return files
+
     @app.get('/api/health', response_model=Health)
     def health():
         available = runner.available()
@@ -179,8 +188,8 @@ def create_app(cfg: Settings | None = None, runner=None, provider=None) -> FastA
                 raise HTTPException(409, 'There is no completed candidate patch to review.')
             if decision.approve and project.result.status != 'VERIFIED':
                 raise HTTPException(409, 'Only a verified candidate can be approved for export.')
-            if decision.approve and tree_hash(project.root / 'candidate') != project.candidate_hash:
-                raise HTTPException(409, 'Candidate integrity check failed.')
+            if decision.approve:
+                checked_candidate(project)
             project.result.approved, project.result.rejected = decision.approve, not decision.approve
             project.save()
         return project.result
@@ -191,14 +200,11 @@ def create_app(cfg: Settings | None = None, runner=None, provider=None) -> FastA
         with project.lock:
             if not project.result.approved or project.result.status != 'VERIFIED':
                 raise HTTPException(403, 'Approve a verified patch before downloading.')
-            candidate = project.root / 'candidate'
-            if tree_hash(candidate) != project.candidate_hash:
-                raise HTTPException(409, 'Candidate integrity check failed.')
+            files = checked_candidate(project)
             stream = io.BytesIO()
             with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as output:
-                for path in sorted(candidate.rglob('*')):
-                    if path.is_file():
-                        output.write(path, path.relative_to(candidate).as_posix())
+                for name, content in files:
+                    output.writestr(name, content)
             return Response(stream.getvalue(), media_type='application/zip', headers={'Content-Disposition': 'attachment; filename="devpilot-patched.zip"', 'Cache-Control': 'no-store'})
 
     return app

@@ -12,6 +12,32 @@ from .security import SafeError
 UNAVAILABLE = 'Sandbox execution unavailable. Start Docker Desktop to enable analysis.'
 
 
+def parse_report(raw: str, exit_code: int) -> TestRun:
+    # A single final frame avoids silently choosing an injected trailing report.
+    # This is framing/consistency validation, NOT authentication of pytest code.
+    frames = list(re.finditer(r'^DEVPILOT_REPORT=([^\n]*)', raw, re.MULTILINE))
+    if len(frames) != 1 or raw[frames[0].end():].strip():
+        return TestRun(exit_code=exit_code, errors=['Missing, duplicate or non-final test evidence.'], logs=raw[-24000:])
+    def unique_keys(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('Duplicate evidence key.')
+            value[key] = item
+        return value
+    try:
+        report = TestRun.model_validate(json.loads(frames[0].group(1), object_pairs_hook=unique_keys))
+    except (ValueError, TypeError, RecursionError):
+        return TestRun(exit_code=exit_code, errors=['Invalid test evidence.'], logs=raw[-24000:])
+    if report.exit_code != exit_code or not report.has_complete_evidence():
+        report.complete = False
+        report.errors.append('Incomplete or inconsistent test evidence.')
+    # The host-observed process result is authoritative, including pytest exit 5.
+    report.exit_code = exit_code
+    report.logs = raw[:frames[0].start()][-24000:]
+    return report
+
+
 class DockerRunner:
     def __init__(self, cfg: Settings):
         self.cfg = cfg
@@ -74,21 +100,10 @@ class DockerRunner:
         raw = output.decode('utf-8', errors='replace')
         raw = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', raw)
         raw = raw.replace(str(root.resolve()), '<project>')
-        logs, marker, payload = raw.rpartition('DEVPILOT_REPORT=')
         if timed_out or exceeded.is_set():
             return TestRun(timed_out=timed_out, errors=['Execution timeout.' if timed_out else 'Test output exceeded limit.'], logs=raw[:24000], duration=time.monotonic()-start)
         if process.returncode == 125:
             raise SafeError('Sandbox could not start. Build devpilot-runner:local and check Docker Desktop file sharing.')
-        try:
-            report = TestRun.model_validate(json.loads(payload)) if marker else TestRun(errors=['Runner returned no evidence.'])
-            if report.exit_code != process.returncode or len(set(report.collected)) != len(report.collected) or set(report.tests) != set(report.collected):
-                report.complete = False
-                report.errors.append('Incomplete or inconsistent test evidence.')
-            if report.exit_code in (0, 1) and report.exit_code != int('failed' in report.tests.values()):
-                report.complete = False
-                report.errors.append('Exit status contradicts individual test outcomes.')
-            report.logs = logs[-24000:] if marker else raw[-24000:]
-            report.duration = time.monotonic()-start
-            return report
-        except (ValueError, TypeError):
-            return TestRun(errors=['Invalid test evidence.'], logs=raw[-24000:], duration=time.monotonic()-start)
+        report = parse_report(raw, process.returncode)
+        report.duration = time.monotonic()-start
+        return report

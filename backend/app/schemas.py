@@ -25,6 +25,13 @@ class TestRun(StrictModel):
     logs: str = ''
     duration: float = 0
 
+    def has_complete_evidence(self) -> bool:
+        return (self.complete and not self.timed_out and not self.errors
+                and self.exit_code in (0, 1) and bool(self.collected)
+                and len(self.collected) == len(set(self.collected))
+                and set(self.tests) == set(self.collected)
+                and self.exit_code == int('failed' in self.tests.values()))
+
 
 class Result(StrictModel):
     project_id: str

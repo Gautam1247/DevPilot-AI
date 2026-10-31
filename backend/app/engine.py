@@ -8,7 +8,7 @@ from .workspaces import Project, tree_hash
 
 
 def verification(baseline: TestRun, targeted: TestRun, candidate: TestRun, target: str) -> tuple[str, str]:
-    if not all(r.complete and not r.errors and not r.timed_out and r.exit_code in (0, 1) for r in (baseline, targeted, candidate)):
+    if not all(r.has_complete_evidence() for r in (baseline, targeted, candidate)):
         return 'INCONCLUSIVE', 'Required test execution did not complete successfully.'
     if baseline.tests.get(target) != 'failed' or not baseline.tests:
         return 'INCONCLUSIVE', 'The target has no baseline failure evidence.'
@@ -41,7 +41,7 @@ class Engine:
             baseline = result.baseline
             if baseline.exit_code == 5:
                 raise SafeError('No tests collected. Include pytest test_*.py files in your ZIP.')
-            if not baseline.complete or baseline.errors or baseline.timed_out or not baseline.tests:
+            if not baseline.has_complete_evidence():
                 raise SafeError('Baseline tests were incomplete: collection error, timeout or invalid evidence. See technical logs.')
             failures = [t for t, outcome in baseline.tests.items() if outcome == 'failed']
             if not failures:

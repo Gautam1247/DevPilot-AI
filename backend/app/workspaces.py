@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from .config import Settings
 from .schemas import Result
+from .security import SafeError
 
 
 @dataclass
@@ -22,14 +23,35 @@ class Project:
         self.root.joinpath('result.json').write_text(self.result.model_dump_json(indent=2), encoding='utf-8')
 
 
-def tree_hash(root: Path) -> str:
-    digest = hashlib.sha256()
+def snapshot_files(root: Path) -> list[tuple[str, bytes]]:
+    def linked(path):
+        return path.is_symlink() or getattr(path, 'is_junction', lambda: False)()
+    if linked(root) or not root.is_dir():
+        raise SafeError('Candidate workspace is missing or linked.')
+    files = []
     for p in sorted(root.rglob('*')):
+        if linked(p):
+            raise SafeError('Candidate contains a filesystem link.')
         if p.is_file():
-            digest.update(p.relative_to(root).as_posix().encode())
-            digest.update(b'\x00')
-            digest.update(p.read_bytes())
+            files.append((p.relative_to(root).as_posix(), p.read_bytes()))
+    return files
+
+
+def snapshot_hash(files: list[tuple[str, bytes]]) -> str:
+    digest = hashlib.sha256()
+    for name, content in files:
+        encoded = name.encode('utf-8')
+        # Length-prefix both fields so different file trees cannot concatenate
+        # to the same input without breaking SHA-256 itself.
+        digest.update(len(encoded).to_bytes(8, 'big'))
+        digest.update(encoded)
+        digest.update(len(content).to_bytes(8, 'big'))
+        digest.update(content)
     return digest.hexdigest()
+
+
+def tree_hash(root: Path) -> str:
+    return snapshot_hash(snapshot_files(root))
 
 
 class Store:

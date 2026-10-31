@@ -95,6 +95,60 @@ def test_candidate_integrity(setup):
     assert client.post(f'/api/projects/{ident}/approve', headers=auth, json={'approve':True}).status_code == 409
 
 
+def test_export_uses_the_bytes_checked_for_integrity(setup, monkeypatch):
+    import app.main as main
+    client, app, _ = setup
+    ident, auth = upload(client)
+    prefix = f'/api/projects/{ident}'
+    client.post(prefix+'/analyze', headers=auth)
+    assert client.post(prefix+'/approve', headers=auth, json={'approve':True}).status_code == 200
+    source = app.state.store.projects[ident].root/'candidate'/'pricing.py'
+    approved = source.read_bytes()
+    # Simulate a local writer changing a file immediately after digest checking.
+    # Support both the original path-based check and a snapshot-based correction.
+    digest_name = 'snapshot_hash' if hasattr(main, 'snapshot_hash') else 'tree_hash'
+    original_hash = getattr(main, digest_name)
+    def change_after_check(value):
+        digest = original_hash(value)
+        source.write_bytes(b'changed_after_verification = True\n')
+        return digest
+    monkeypatch.setattr(main, digest_name, change_after_check)
+    response = client.get(prefix+'/download', headers=auth)
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as exported:
+        assert exported.read('pricing.py') == approved
+
+
+@pytest.mark.parametrize('kind', ['missing','wrong','other_project','expired'])
+def test_all_sensitive_routes_enforce_capabilities(setup, kind):
+    client, app, _ = setup
+    ident, auth = upload(client)
+    expected = 403
+    if kind == 'missing':
+        auth = {}
+    elif kind == 'wrong':
+        auth = {'Authorization':'Bearer incorrect-test-token'}
+    elif kind == 'other_project':
+        _, auth = upload(client)
+    else:
+        app.state.store.projects[ident].expires_at = time.time()-1
+        expected = 410
+    prefix = '/api/projects/'+ident
+    for method, suffix, body in [('GET','results',None),('POST','analyze',None),
+                                 ('POST','approve',{'approve':True}),('GET','download',None)]:
+        assert client.request(method, prefix+'/'+suffix, headers=auth, json=body).status_code == expected
+
+
+def test_postapproval_tampering_blocks_export(setup):
+    client, app, _ = setup
+    ident, auth = upload(client)
+    prefix = '/api/projects/'+ident
+    client.post(prefix+'/analyze', headers=auth)
+    assert client.post(prefix+'/approve', headers=auth, json={'approve':True}).status_code == 200
+    (app.state.store.projects[ident].root/'candidate'/'pricing.py').write_text('tampered = True')
+    assert client.get(prefix+'/download', headers=auth).status_code == 409
+
+
 def test_upload_validation_and_limit(setup):
     client, _, _ = setup
     headers = {'Content-Type':'application/zip','X-Filename':'a.zip'}
